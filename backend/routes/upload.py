@@ -5,11 +5,13 @@ import threading
 import time
 from werkzeug.utils import secure_filename
 from backend.services.pdf_processor import PDFProcessor
+from backend.services.qwen_client import QwenClient
 from backend.utils.session_manager import session_manager
 from config import Config
 
 upload_bp = Blueprint('upload', __name__)
 pdf_processor = PDFProcessor()
+qwen_client = QwenClient()
 
 # 进度状态存储
 processing_progress = {}
@@ -22,6 +24,77 @@ def update_progress(document_id, progress, message):
         'timestamp': time.time()
     }
 
+def generate_document_summary(document_id):
+    """生成文档总结
+    
+    Args:
+        document_id: 文档ID
+        
+    Returns:
+        文档总结文本
+    """
+    try:
+        print(f"\n=== 开始生成文档总结 ===")
+        print(f"文档ID: {document_id}")
+        
+        # 获取文档信息
+        doc_info = pdf_processor.get_document_info(document_id)
+        if not doc_info['success']:
+            print("获取文档信息失败")
+            print("=== 文档总结生成失败 ===\n")
+            return None
+        
+        document = doc_info['document']
+        total_pages = document['total_pages']
+        print(f"文档名称: {document['filename']}")
+        print(f"总页数: {total_pages}")
+        
+        # 批量分析所有页面图片（根据实际页数）
+        print(f"将批量分析所有 {total_pages} 页内容")
+        
+        # 收集所有图片路径
+        image_paths = []
+        for page_num in range(1, total_pages + 1):
+            image_path = pdf_processor.get_page_image_path(document_id, page_num)
+            if os.path.exists(image_path):
+                image_paths.append(image_path)
+                print(f"添加第 {page_num} 页图片: {image_path}")
+            else:
+                print(f"第 {page_num} 页图片文件不存在: {image_path}")
+        
+        if not image_paths:
+            print("没有找到任何有效的页面图片")
+            print("=== 文档总结生成失败 ===\n")
+            return "无法找到文档图片，请检查文档格式。"
+        
+        print(f"找到 {len(image_paths)} 个有效图片文件")
+        
+        try:
+            # 使用新的直接从图片生成总结的方法
+            print("正在从图片直接生成文档总结...")
+            summary = qwen_client.generate_document_summary_from_images(image_paths)
+            
+        except Exception as e:
+            print(f"批量分析失败: {str(e)}")
+            print("=== 文档总结生成失败 ===\n")
+            # 移除current_app.logger调用以避免应用上下文问题
+            return f"文档分析失败: {str(e)}"
+        
+        if summary:
+            print(f"文档总结生成成功，长度: {len(summary)} 字符")
+            print(f"总结预览: {summary[:100]}{'...' if len(summary) > 100 else ''}")
+            print("=== 文档总结生成完成 ===\n")
+        else:
+            print("文档总结生成失败")
+            print("=== 文档总结生成失败 ===\n")
+        
+        return summary
+        
+    except Exception as e:
+        print(f"生成文档总结异常: {str(e)}")
+        print("=== 文档总结生成异常 ===\n")
+        return None
+
 def process_pdf_async(file_path, filename, document_id, session_id):
     """异步处理PDF"""
     try:
@@ -33,6 +106,22 @@ def process_pdf_async(file_path, filename, document_id, session_id):
             if session_id:
                 session_manager.add_document_to_session(session_id, result['document_id'])
             
+            # 更新进度：开始生成文档总结
+            update_progress(document_id, 95, "正在生成文档总结...")
+            
+            # 生成文档总结
+            try:
+                summary = generate_document_summary(result['document_id'])
+                if summary:
+                    # 保存总结到文档元数据
+                    pdf_processor.update_document_summary(result['document_id'], summary)
+                    update_progress(document_id, 98, "文档总结生成完成")
+                else:
+                    update_progress(document_id, 98, "文档总结生成失败，但PDF处理完成")
+            except Exception as e:
+                print(f"生成文档总结失败: {str(e)}")
+                update_progress(document_id, 98, f"文档总结生成失败: {str(e)}，但PDF处理完成")
+            
             # 更新最终状态
             processing_progress[document_id] = {
                 'progress': 100,
@@ -40,7 +129,8 @@ def process_pdf_async(file_path, filename, document_id, session_id):
                 'success': True,
                 'document_id': result['document_id'],
                 'total_pages': result['total_pages'],
-                'file_size': result['file_size']
+                'file_size': result['file_size'],
+                'filename': filename
             }
         else:
             # 删除上传的文件
@@ -141,7 +231,7 @@ def upload_file():
             }), 500
             
     except Exception as e:
-        current_app.logger.error(f"文件上传失败: {str(e)}")
+        print(f"文件上传失败: {str(e)}")
         return jsonify({
             'success': False,
             'error': f'文件上传失败: {str(e)}'

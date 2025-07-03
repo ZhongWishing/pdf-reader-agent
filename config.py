@@ -17,8 +17,8 @@ class Config:
     
     # 文件上传配置
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', '50')) * 1024 * 1024  # 转换为字节
-    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
-    DATA_FOLDER = os.environ.get('DATA_FOLDER', 'data')
+    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', os.path.join(os.path.dirname(__file__), 'backend', 'uploads'))
+    DATA_FOLDER = os.environ.get('DATA_FOLDER', os.path.join(os.path.dirname(__file__), 'backend', 'data'))
     
     # 服务器配置
     HOST = os.environ.get('HOST', '127.0.0.1')

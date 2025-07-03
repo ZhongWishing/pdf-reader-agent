@@ -23,10 +23,12 @@ class APIManager:
         """加载API配置"""
         # Qwen API配置
         self.qwen_config = {
-            'api_key': os.environ.get('QWEN_API_KEY', 'sk-2070ced43347491cb70b298c8a7330c9'),
+            'api_key': os.environ.get('QWEN_API_KEY', 'sk-12bce6292cff4499b56ea4dc2ce30082'),
             'base_url': os.environ.get('QWEN_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1'),
-            'model': os.environ.get('QWEN_MODEL', 'qwen-vl-plus'),
-            'timeout': int(os.environ.get('QWEN_TIMEOUT', '30')),
+            'vision_model': os.environ.get('QWEN_VISION_MODEL', 'qwen-vl-max-latest'),  # 最优视觉理解模型
+            'ocr_model': os.environ.get('QWEN_OCR_MODEL', 'qwen-vl-ocr-latest'),      # 最优文字提取模型
+            'text_model': os.environ.get('QWEN_TEXT_MODEL', 'qwen-max-latest'),       # 最优文本理解模型
+            'timeout': int(os.environ.get('QWEN_TIMEOUT', '300')),  # 增加到5分钟
             'max_retries': int(os.environ.get('QWEN_MAX_RETRIES', '3'))
         }
         
@@ -49,13 +51,21 @@ class APIManager:
         """获取Qwen API基础URL"""
         return self.qwen_config['base_url']
     
-    def get_qwen_model(self) -> str:
-        """获取Qwen模型名称"""
-        return self.qwen_config['model']
+    def get_qwen_vision_model(self) -> str:
+        """获取Qwen视觉理解模型名称"""
+        return self.qwen_config['vision_model']
+    
+    def get_qwen_ocr_model(self) -> str:
+        """获取Qwen OCR模型名称"""
+        return self.qwen_config['ocr_model']
+    
+    def get_qwen_text_model(self) -> str:
+        """获取Qwen文本理解模型名称"""
+        return self.qwen_config['text_model']
     
     def validate_qwen_config(self) -> bool:
         """验证Qwen API配置是否完整"""
-        required_fields = ['api_key', 'base_url', 'model']
+        required_fields = ['api_key', 'base_url', 'vision_model', 'ocr_model', 'text_model']
         
         for field in required_fields:
             if not self.qwen_config.get(field):
@@ -95,7 +105,9 @@ class APIManager:
             'qwen': {
                 'api_key': masked_key,
                 'base_url': self.qwen_config['base_url'],
-                'model': self.qwen_config['model'],
+                'vision_model': self.qwen_config['vision_model'],
+                'ocr_model': self.qwen_config['ocr_model'],
+                'text_model': self.qwen_config['text_model'],
                 'timeout': self.qwen_config['timeout'],
                 'max_retries': self.qwen_config['max_retries'],
                 'is_valid': self.validate_qwen_config()
@@ -109,8 +121,10 @@ class APIManager:
             env_content = """# Qwen API配置
 QWEN_API_KEY=sk-2070ced43347491cb70b298c8a7330c9
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-QWEN_MODEL=qwen-vl-plus
-QWEN_TIMEOUT=30
+QWEN_VISION_MODEL=qwen-vl-max-latest
+QWEN_OCR_MODEL=qwen-vl-ocr-latest
+QWEN_TEXT_MODEL=qwen-max-latest
+QWEN_TIMEOUT=60
 QWEN_MAX_RETRIES=3
 
 # 应用配置
@@ -120,8 +134,8 @@ SECRET_KEY=pdf-reader-agent-secret-key-2024
 
 # 文件上传配置
 MAX_CONTENT_LENGTH=50
-UPLOAD_FOLDER=uploads
-DATA_FOLDER=data
+UPLOAD_FOLDER=backend/uploads
+DATA_FOLDER=backend/data
 
 # 服务器配置
 HOST=0.0.0.0
