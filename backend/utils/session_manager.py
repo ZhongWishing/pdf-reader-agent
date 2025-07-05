@@ -66,6 +66,18 @@ class SessionManager:
                         except Exception as e:
                             print(f"删除图片目录 {item} 失败: {e}")
             
+            # 清理figures目录中的所有Figure截取文件夹
+            figures_dir = os.path.join(data_dir, 'figures')
+            if os.path.exists(figures_dir):
+                for item in os.listdir(figures_dir):
+                    item_path = os.path.join(figures_dir, item)
+                    if os.path.isdir(item_path):
+                        try:
+                            shutil.rmtree(item_path)
+                            print(f"已删除历史Figure目录: {item}")
+                        except Exception as e:
+                            print(f"删除Figure目录 {item} 失败: {e}")
+            
             print("历史记录清理完成")
             
         except Exception as e:
@@ -246,6 +258,12 @@ class SessionManager:
             if os.path.exists(images_dir):
                 shutil.rmtree(images_dir)
                 print(f"已删除图片目录: {images_dir}")
+            
+            # 清理Figure截取图片目录
+            figures_dir = os.path.join(Config.DATA_FOLDER, 'figures', document_id)
+            if os.path.exists(figures_dir):
+                shutil.rmtree(figures_dir)
+                print(f"已删除Figure目录: {figures_dir}")
             
             print(f"文档 {document_id} 数据清理完成")
             

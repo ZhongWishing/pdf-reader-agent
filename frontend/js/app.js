@@ -559,17 +559,21 @@ class PDFReaderApp {
                 const confidence = data.confidence;
                 const pageImages = data.page_images || [];
                 const extractedFigures = data.extracted_figures || [];
+                const autoExtractedFigures = data.auto_extracted_figures || [];
+                
+                // 合并手动和自动提取的Figure
+                const allExtractedFigures = [...extractedFigures, ...autoExtractedFigures];
                 
                 this.addMessage(
                     answerContent, 
                     'assistant', 
                     false, 
-                    data.source_pages,
+                    data.source_pages || data.relevant_pages,
                     'normal',
                     answerType,
                     pageImages,
                     confidence,
-                    extractedFigures
+                    allExtractedFigures
                 );
             } else {
                 this.addMessage(
@@ -630,7 +634,8 @@ class PDFReaderApp {
             extractedFigures.forEach((figure, index) => {
                 const pageNumber = figure.page_number;
                 const figureType = figure.type || 'figure';
-                const imageUrl = figure.image_url;
+                // 兼容后端返回的不同字段名
+                const imageUrl = figure.image_url || figure.figure_url;
                 const description = figure.description || '';
                 const analysis = figure.analysis || '';
                 
@@ -642,10 +647,10 @@ class PDFReaderApp {
                         </div>
                         <div class="figure-image-container">
                             <img src="${imageUrl}" alt="第${pageNumber}页图表" class="extracted-figure-image" 
-                                 onclick="app.showPageImage('${this.currentDocument.id}', ${pageNumber})" />
+                                 onclick="app.showExtractedFigure('${imageUrl}', '${figureType} ${index + 1}')" />
                             <div class="figure-overlay">
-                                <button class="view-full-btn" onclick="app.showPageImage('${this.currentDocument.id}', ${pageNumber})">
-                                    🔍 查看完整页面
+                                <button class="view-full-btn" onclick="app.showExtractedFigure('${imageUrl}', '${figureType} ${index + 1}')">
+                                    🔍 查看完整图片
                                 </button>
                             </div>
                         </div>
@@ -771,6 +776,30 @@ class PDFReaderApp {
         } catch (error) {
             console.error('加载页面图片失败:', error);
             this.showError('无法加载页面图片，请重试');
+        }
+    }
+    
+    // 显示截取的Figure图片
+    showExtractedFigure(imageUrl, figureTitle) {
+        try {
+            const modalImage = document.getElementById('modalImage');
+            modalImage.src = imageUrl;
+            
+            document.getElementById('modalPageInfo').innerHTML = `
+                <strong>${figureTitle}</strong>
+                <span style="color: #666; font-size: 0.9em;">（系统自动截取的图表）</span>
+            `;
+            
+            document.getElementById('imageModal').style.display = 'flex';
+            
+            // 存储当前图片信息
+            this.currentImageInfo = {
+                imageUrl: imageUrl,
+                figureTitle: figureTitle
+            };
+        } catch (error) {
+            console.error('显示截取图片失败:', error);
+            this.showError('无法显示图片，请重试');
         }
     }
     

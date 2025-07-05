@@ -29,6 +29,12 @@ class QuestionAnalyzer:
             '比较', '对比', '差异', '区别', '相同', '不同', '异同'
         ]
         
+        # Figure相关关键词
+        self.figure_keywords = [
+            'figure', 'fig', '图', '图片', '图像', '图表', '示意图', 
+            '流程图', '结构图', '框图', '图形', '插图', '配图'
+        ]
+        
         # 位置关键词
         self.location_keywords = {
             'beginning': ['开头', '开始', '前面', '首先', '第一'],
@@ -55,7 +61,8 @@ class QuestionAnalyzer:
             'page_info': self._extract_page_info(question),
             'location_info': self._extract_location_info(question),
             'complexity': self._analyze_complexity(question),
-            'requires_multiple_pages': self._requires_multiple_pages(question)
+            'requires_multiple_pages': self._requires_multiple_pages(question),
+            'figure_info': self._extract_figure_info(question)
         }
         
         return analysis
@@ -90,6 +97,10 @@ class QuestionAnalyzer:
         # 检查是否需要详细信息
         if any(keyword in question for keyword in self.detail_keywords):
             return 'detail_query'
+        
+        # 检查是否是Figure查询
+        if any(keyword in question_lower for keyword in self.figure_keywords):
+            return 'figure_query'
         
         # 默认为内容查询
         return 'content_query'
@@ -227,6 +238,60 @@ class QuestionAnalyzer:
         ]
         
         return any(indicator in question for indicator in multiple_page_indicators)
+    
+    def _extract_figure_info(self, question: str) -> Dict[str, Any]:
+        """提取Figure相关信息
+        
+        Args:
+            question: 问题文本
+            
+        Returns:
+            Figure信息
+        """
+        figure_info = {
+            'has_figure_request': False,
+            'figure_numbers': [],
+            'figure_types': [],
+            'figure_descriptions': []
+        }
+        
+        question_lower = question.lower()
+        
+        # 检查是否包含Figure关键词
+        if any(keyword in question_lower for keyword in self.figure_keywords):
+            figure_info['has_figure_request'] = True
+        
+        # 提取Figure编号：Figure 1, Fig. 2, 图1等
+        figure_patterns = [
+            r'figure\s*(\d+)',
+            r'fig\.?\s*(\d+)',
+            r'图\s*(\d+)',
+            r'图片\s*(\d+)',
+            r'图表\s*(\d+)'
+        ]
+        
+        for pattern in figure_patterns:
+            matches = re.finditer(pattern, question_lower)
+            for match in matches:
+                figure_info['has_figure_request'] = True
+                figure_num = int(match.group(1))
+                if figure_num not in figure_info['figure_numbers']:
+                    figure_info['figure_numbers'].append(figure_num)
+        
+        # 提取Figure类型描述
+        type_patterns = [
+            r'(流程图|结构图|框图|示意图|配图|插图)',
+            r'(chart|diagram|graph|plot|image)'
+        ]
+        
+        for pattern in type_patterns:
+            matches = re.finditer(pattern, question_lower)
+            for match in matches:
+                figure_type = match.group(1)
+                if figure_type not in figure_info['figure_types']:
+                    figure_info['figure_types'].append(figure_type)
+        
+        return figure_info
 
 
 class PageSelector:
@@ -258,6 +323,11 @@ class PageSelector:
         
         document = doc_info['document']
         total_pages = document['total_pages']
+        
+        # 如果是Figure查询，搜索所有页面
+        if analysis['figure_info']['has_figure_request']:
+            print(f"检测到Figure查询，将搜索所有 {total_pages} 页")
+            return list(range(1, total_pages + 1))
         
         # 根据问题类型选择页面
         if analysis['question_type'] == 'summary':

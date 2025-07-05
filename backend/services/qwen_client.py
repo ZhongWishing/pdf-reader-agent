@@ -37,6 +37,411 @@ class QwenClient:
         """
         return self.analyze_multiple_images([image_path], prompt, analysis_type)
     
+    def detect_figures_in_page(self, image_path: str, figure_query: str = None) -> Dict:
+        """精确检测页面中的Figure位置和信息
+        
+        Args:
+            image_path: 页面图片路径
+            figure_query: 用户查询的Figure描述（如"Figure 1", "表格2"等）
+            
+        Returns:
+            包含Figure位置信息的字典
+        """
+        print(f"\n=== 开始检测页面中的Figure ===")
+        print(f"图片路径: {image_path}")
+        print(f"查询内容: {figure_query}")
+        
+        # 构建专门的Figure检测提示词
+        detection_prompt = f"""作为专业的文档图像分析专家，请精确分析这个PDF页面中的图表、图像和表格，并提供详细的位置信息。
+
+【重要指令】
+{f'用户正在查询特定内容：{figure_query}' if figure_query else '用户需要识别页面中的所有图表元素'}
+{f'请ONLY识别和返回与"{figure_query}"完全匹配的图表元素，忽略其他无关图表！' if figure_query else ''}
+
+【分析任务】
+1. 识别页面中的视觉元素（重点关注用户查询的特定内容）：
+   - 图表（Figure 1, Figure 2等，柱状图、折线图、散点图、饼图等）
+   - 表格（Table 1, Table 2等，数据表、对比表等）
+   - 图像（照片、示意图、流程图等）
+   - 公式（数学公式、化学式等）
+
+2. 为匹配的元素提供精确的位置信息：
+   - 元素类型和编号（如"Figure 1", "Table 2"等）
+   - 在页面中的相对位置（用百分比表示）
+   - 边界框坐标（左上角x,y + 宽度,高度，均为百分比）
+   - 元素的标题或说明文字
+   - 元素的主要内容描述
+
+【精确定位要求】
+- 仔细观察图表的实际边界，包括图表本身、标题、坐标轴、图例等完整内容
+- 确保边界框紧密贴合图表的实际范围，不要包含过多空白区域
+- 特别注意图表的左上角坐标要准确，避免偏移
+- 宽度和高度要覆盖图表的完整内容，包括标题和图例
+- 如果图表有标题在上方，边界框应该从标题开始
+- 如果图表有图例或说明文字，边界框应该包含这些内容
+
+【置信度评分标准 - 重要】
+请根据以下标准为每个检测到的Figure分配置信度分数：
+
+**高置信度 (0.9-1.0)：标准学术Figure格式**
+- 彩色图片/图表 + 下方明确的文字标题（如"Figure 1. xxx"）
+- 图表内容丰富，有坐标轴、数据点、图例等完整元素
+- 标题与图表内容高度相关，描述清晰
+- 整体布局规范，符合学术论文标准
+
+**中等置信度 (0.7-0.9)：部分符合Figure格式**
+- 有图表但标题不够明确或位置不标准
+- 图表为黑白但有完整的标题和说明
+- 图表内容较简单但结构完整
+
+**低置信度 (0.5-0.7)：可能的Figure元素**
+- 仅有图片但缺少明确标题
+- 仅有文字描述但缺少图表
+- 图表不完整或模糊
+
+**极低置信度 (0.3-0.5)：疑似Figure**
+- 纯文字段落（即使包含"Figure"字样）
+- 页面布局元素（页眉、页脚等）
+- 不完整或截断的图表
+
+**不是Figure (0.0-0.3)：明确排除**
+- 纯文字内容
+- 页面装饰元素
+- 明显不是图表的内容
+
+【关键要求】
+- 论文页面中会有标题（如3.1）等会被误认为是Figure，需要特别注意，这不是用户想要的
+- 论文中会有页面的文字部分提及“Figure num”，这是论文对于Figure的讲解，不是用户想要的
+- 如果用户查询特定Figure（如"Figure 1"），则ONLY返回该Figure，不要返回其他Figure
+- 如果页面中没有用户查询的目标Figure，则返回空的figures数组
+- 确保返回的Figure与用户查询完全匹配
+- 优先识别有明确标号的Figure和Table
+- 定位精度要求：坐标误差应控制在±2%以内
+- **严格按照置信度评分标准，优先识别彩色图片+文字标题的标准Figure格式**
+
+【输出格式要求】
+请严格按照以下JSON格式输出结果：
+```json
+{{
+  "total_figures": 数量,
+  "figures": [
+    {{
+      "id": "figure_1",
+      "type": "图表类型",
+      "title": "标题或编号",
+      "description": "内容描述",
+      "position": {{
+        "x": 左上角x坐标百分比,
+        "y": 左上角y坐标百分比,
+        "width": 宽度百分比,
+        "height": 高度百分比
+      }},
+      "confidence": 置信度(0-1),
+      "matches_query": 是否匹配用户查询(true/false)
+    }}
+  ]
+}}
+```
+
+【重要说明】
+- 坐标系统：左上角为(0,0)，右下角为(100,100)
+- 所有数值都用百分比表示，便于后续截取
+- 坐标定位要求极高精度，请仔细观察图表的实际边界
+- 如果无法确定精确位置，请给出最佳估计并降低置信度
+- 如果页面中没有匹配的Figure，请返回空的figures数组
+- 只返回与用户查询匹配的Figure，避免截取无关图片
+- 特别注意：避免坐标偏移，确保截取的是完整且准确的目标图表
+"""
+        
+        try:
+            print("正在读取图片文件...")
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            print(f"图片文件大小: {len(image_data)} 字节")
+            
+            # 将图片转换为base64
+            import base64
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            payload = {
+                'model': self.vision_model,  # 使用最优视觉模型
+                'messages': [
+                    {
+                        'role': 'user',
+                        'content': [
+                            {
+                                'type': 'text',
+                                'text': detection_prompt
+                            },
+                            {
+                                'type': 'image_url',
+                                'image_url': {
+                                    'url': f'data:image/jpeg;base64,{image_base64}'
+                                }
+                            }
+                        ]
+                    }
+                ],
+                'max_tokens': 3000,
+                'temperature': 0.1  # 低温度确保结果稳定
+            }
+            
+            print("正在调用Figure检测API...")
+            response = requests.post(
+                f'{self.base_url}/chat/completions',
+                headers=self.headers,
+                json=payload,
+                timeout=self.timeout
+            )
+            
+            print(f"API响应状态码: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                detection_result = result['choices'][0]['message']['content']
+                print(f"检测结果长度: {len(detection_result)} 字符")
+                
+                # 尝试解析JSON结果
+                try:
+                    import json
+                    import re
+                    
+                    # 提取JSON部分
+                    json_match = re.search(r'```json\s*({.*?})\s*```', detection_result, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(1)
+                        figure_data = json.loads(json_str)
+                        print(f"成功解析JSON，发现 {figure_data.get('total_figures', 0)} 个图表")
+                        print("=== Figure检测完成 ===")
+                        return {
+                            'success': True,
+                            'figures': figure_data.get('figures', []),
+                            'total_figures': figure_data.get('total_figures', 0),
+                            'raw_response': detection_result
+                        }
+                    else:
+                        print("未找到JSON格式结果，返回原始文本")
+                        return {
+                            'success': False,
+                            'error': 'JSON格式解析失败',
+                            'raw_response': detection_result
+                        }
+                        
+                except json.JSONDecodeError as e:
+                    print(f"JSON解析错误: {str(e)}")
+                    return {
+                        'success': False,
+                        'error': f'JSON解析错误: {str(e)}',
+                        'raw_response': detection_result
+                    }
+            else:
+                print(f"API请求失败: {response.status_code} - {response.text}")
+                return {
+                    'success': False,
+                    'error': f'API请求失败: {response.status_code}'
+                }
+                
+        except Exception as e:
+            print(f"Figure检测失败: {str(e)}")
+            print("=== Figure检测异常 ===")
+            return {
+                        'success': False,
+                        'error': f'Figure检测失败: {str(e)}'
+                    }
+    
+    def review_extracted_figures(self, figure_images: List[Dict], user_query: str) -> Dict:
+        """大模型审查截取的Figure图片，选择最符合用户要求的目标Figure
+        
+        Args:
+            figure_images: 截取的Figure图片列表，每个包含image_path和相关信息
+            user_query: 用户的原始查询
+            
+        Returns:
+            审查结果，包含推荐的最佳Figure
+        """
+        print(f"\n=== 开始大模型审查截取的Figure ====")
+        print(f"待审查图片数量: {len(figure_images)}")
+        print(f"用户查询: {user_query}")
+        
+        if not figure_images:
+            return {
+                'success': False,
+                'error': '没有图片需要审查',
+                'recommended_figure': None
+            }
+        
+        # 构建审查提示词
+        review_prompt = f"""作为专业的学术文档分析专家，请审查这些截取的图片，判断哪一个最符合用户的查询要求。
+
+【用户查询】
+{user_query}
+
+【审查任务】
+请仔细分析每张图片，判断：
+1. 图片内容是否与用户查询相关
+2. 图片质量和完整性
+3. 是否为标准的学术Figure格式（彩色图表 + 文字标题）
+4. 图片中的信息是否能回答用户的问题
+
+【评分标准】
+为每张图片打分（0-10分）：
+- **10分：完美匹配** - 彩色图表 + 清晰标题 + 完全符合用户查询
+- **8-9分：高度匹配** - 图表清晰 + 有标题 + 高度相关用户查询
+- **6-7分：部分匹配** - 图表可见 + 部分相关用户查询
+- **4-5分：勉强匹配** - 图片模糊或相关性较低
+- **1-3分：不匹配** - 图片质量差或与查询无关
+- **0分：完全不符合** - 纯文字或无关内容
+
+【特别关注】
+- 优先选择彩色图表配有明确标题的Figure
+- 图表内容应该丰富（有坐标轴、数据点、图例等）
+- 标题应该与图表内容高度相关
+- 整体布局应该符合学术论文标准
+- 不要将一些标题等元素误认为是Figure的标题，你需要严格审查用户要求的目标对象
+- 由于上一层截图的不完整性，可能会导致截图中的一部分为目标Figure，但是包含其他内容，你需要严格审查用户要求的目标对象是否在截图中，对于这种情况可以赋予更高的分数
+
+【输出格式】
+请严格按照以下JSON格式输出结果：
+```json
+{{
+  "total_reviewed": 图片总数,
+  "reviews": [
+    {{
+      "image_index": 图片索引(0开始),
+      "score": 评分(0-10),
+      "quality_assessment": "图片质量评估",
+      "relevance_assessment": "与查询相关性评估",
+      "format_assessment": "Figure格式评估",
+      "recommendation_reason": "推荐或不推荐的原因"
+    }}
+  ],
+  "best_figure_index": 最佳图片的索引,
+  "confidence": 推荐置信度(0-1),
+  "summary": "审查总结和推荐理由"
+}}
+```
+
+请仔细分析每张图片，给出客观、准确的评估。"""
+        
+        try:
+            print("正在准备图片数据...")
+            # 构建消息内容
+            content = [{
+                'type': 'text',
+                'text': review_prompt
+            }]
+            
+            # 添加所有截取的图片
+            for i, figure_info in enumerate(figure_images):
+                image_path = figure_info.get('image_path')
+                if image_path and os.path.exists(image_path):
+                    with open(image_path, 'rb') as f:
+                        image_data = f.read()
+                    
+                    print(f"图片{i+1}: {image_path}, 大小: {len(image_data)} 字节")
+                    
+                    # 将图片转换为base64
+                    import base64
+                    image_base64 = base64.b64encode(image_data).decode('utf-8')
+                    
+                    content.append({
+                        'type': 'image_url',
+                        'image_url': {
+                            'url': f'data:image/jpeg;base64,{image_base64}'
+                        }
+                    })
+                else:
+                    print(f"警告: 图片{i+1}不存在: {image_path}")
+            
+            payload = {
+                'model': self.vision_model,
+                'messages': [
+                    {
+                        'role': 'user',
+                        'content': content
+                    }
+                ],
+                'max_tokens': 2000,
+                'temperature': 0.1
+            }
+            
+            print("正在调用大模型进行Figure审查...")
+            response = requests.post(
+                f'{self.base_url}/chat/completions',
+                headers=self.headers,
+                json=payload,
+                timeout=self.timeout
+            )
+            
+            print(f"API响应状态码: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                review_result = result['choices'][0]['message']['content']
+                print(f"审查结果长度: {len(review_result)} 字符")
+                
+                # 尝试解析JSON结果
+                try:
+                    import json
+                    import re
+                    
+                    # 提取JSON部分
+                    json_match = re.search(r'```json\s*({.*?})\s*```', review_result, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(1)
+                        review_data = json.loads(json_str)
+                        
+                        best_index = review_data.get('best_figure_index')
+                        if best_index is not None and 0 <= best_index < len(figure_images):
+                            recommended_figure = figure_images[best_index]
+                            print(f"推荐Figure索引: {best_index}, 置信度: {review_data.get('confidence', 0):.2f}")
+                            print(f"推荐理由: {review_data.get('summary', 'N/A')}")
+                            print("=== Figure审查完成 ===\n")
+                            
+                            return {
+                                'success': True,
+                                'recommended_figure': recommended_figure,
+                                'review_data': review_data,
+                                'raw_response': review_result
+                            }
+                        else:
+                            print("审查结果中没有有效的推荐索引")
+                            return {
+                                'success': False,
+                                'error': '审查结果中没有有效的推荐索引',
+                                'raw_response': review_result
+                            }
+                    else:
+                        print("未找到JSON格式的审查结果")
+                        return {
+                            'success': False,
+                            'error': 'JSON格式解析失败',
+                            'raw_response': review_result
+                        }
+                        
+                except json.JSONDecodeError as e:
+                    print(f"JSON解析错误: {str(e)}")
+                    return {
+                        'success': False,
+                        'error': f'JSON解析错误: {str(e)}',
+                        'raw_response': review_result
+                    }
+            else:
+                print(f"API请求失败: {response.status_code} - {response.text}")
+                return {
+                    'success': False,
+                    'error': f'API请求失败: {response.status_code}'
+                }
+                
+        except Exception as e:
+            print(f"Figure审查失败: {str(e)}")
+            print("=== Figure审查异常 ===\n")
+            return {
+                'success': False,
+                'error': f'Figure审查失败: {str(e)}'
+            }
+    
     def analyze_multiple_images(self, image_paths: List[str], prompt: str = None, analysis_type: str = 'comprehensive') -> str:
         """批量分析多张文档图片
         
@@ -106,6 +511,11 @@ class QwenClient:
         else:  # comprehensive
             model = self.vision_model
             default_prompt = f"""作为专业的学术文档分析专家，你擅长于分析用户提供的学术文献(已经转化为图片格式传递给你)，请对这{len(valid_image_paths)}个PDF页面进行全面深入的分析：
+
+【重要说明】
+- 用户询问的“Figure”或者“图”等问题指的是论文文献中的图片等元素，不要理解为我将PDF分割成的、传递给你的论文图片
+- 对于论文文献中图表等分析需要具体说明，特别说明图表等与文字内容部分的联系
+- 不要过多说明与本问题不相关的其余图表的内容，只需要关注本问题要求的元素即可
 
 【文字识别与提取】
 - 精确提取所有文字内容，包括标题、正文、注释、引用等，你需要基于提取的文字等内容进行学习，用于解答后续的问题
@@ -401,13 +811,41 @@ class QwenClient:
         Returns:
             包含回答内容和相关信息的字典
         """
+        # 检测是否是图表相关问题
+        is_figure_question = self._analyze_question_type(question)
+        
+        # 如果没有相关页面内容，检查是否可以通过图片分析来回答图表问题
         if not relevant_pages:
-            return {
-                'answer': "抱歉，没有找到相关的文档内容来回答您的问题。",
-                'answer_type': 'text',
-                'source_images': [],
-                'confidence': 0.0
-            }
+            if is_figure_question and page_images:
+                print("检测到图表问题且无文字内容，使用图片进行分析...")
+                try:
+                    # 使用图片分析来回答图表问题
+                    image_analysis = self.analyze_multiple_images(
+                        page_images, 
+                        prompt=f"请专门针对用户问题'{question}'进行分析，重点关注相关的图表、图像和视觉元素。",
+                        analysis_type='visual'
+                    )
+                    return {
+                        'answer': image_analysis,
+                        'answer_type': 'visual_analysis',
+                        'source_images': page_images,
+                        'confidence': 0.8
+                    }
+                except Exception as e:
+                    print(f"图片分析失败: {str(e)}")
+                    return {
+                        'answer': "抱歉，分析图表内容时出现错误，请稍后重试。",
+                        'answer_type': 'error',
+                        'source_images': [],
+                        'confidence': 0.0
+                    }
+            else:
+                return {
+                    'answer': "抱歉，没有找到相关的文档内容来回答您的问题。",
+                    'answer_type': 'text',
+                    'source_images': [],
+                    'confidence': 0.0
+                }
         
         # 构建上下文
         context = "\n\n".join(relevant_pages)
@@ -418,6 +856,11 @@ class QwenClient:
         # 系统提示
         system_prompt = """你是一个专业的PDF文档解析智能体，具备强大的多模态理解能力，能够精确分析PDF文档中的文字、图表、公式、图像等各种元素。
         我已经将论文PDF按照页面顺序处理为图片，并将此图片按照图片名称有序传递给你。你具有如下能力：
+        
+【重要说明】
+- 用户询问的“Figure”或者“图”等问题指的是论文文献中的图片等元素，不要理解为我将PDF分割成的、传递给你的论文图片
+- 对于论文文献中图表等分析需要具体说明，特别说明图表等与文字内容部分的联系
+- 不要过多说明与本问题不相关的其余图表的内容，只需要关注本问题要求的元素即可
 
 【核心能力与特长】
 - 精确的OCR文字识别和语义理解
@@ -502,6 +945,11 @@ class QwenClient:
 
 【用户问题】
 {question}
+
+【重要说明】
+- 用户询问的“Figure”或者“图”等问题指的是论文文献中的图片等元素，不要理解为我将PDF分割成的、传递给你的论文图片
+- 对于论文文献中图表等分析需要具体说明，特别说明图表等与文字内容部分的联系
+- 不要过多说明与本问题不相关的其余图表的内容，只需要关注本问题要求的元素即可
 
 【分析要求】
 请基于上述文档内容深入分析并回答问题。如果问题涉及：
@@ -710,7 +1158,7 @@ class QwenClient:
             messages = []
             
             # 系统提示
-            system_prompt = """你是一个智能助手，能够回答各种问题。请用中文回答用户的问题，保持友好、专业的语调。
+            system_prompt = """你是一个专攻于AI领域文献分析的智能助手，能够回答用户上传的文献中的各种相关问题。请用中文回答用户的问题，保持友好、专业的语调。
             
 如果用户询问关于PDF文档分析的问题，请提醒用户可以上传PDF文档来获得更专业的文档分析服务。"""
             

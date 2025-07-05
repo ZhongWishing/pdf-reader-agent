@@ -574,6 +574,124 @@ body {
     box-shadow: 0 0 0 1px rgba(0, 123, 255, 0.3);
 }
 
+/* 自动截取Figure样式 */
+.extracted-figures {
+    margin: 15px 0;
+    padding: 15px;
+    background: linear-gradient(135deg, #f8f9ff 0%, #e6f3ff 100%);
+    border-radius: 12px;
+    border: 1px solid #d1ecf1;
+}
+
+.extracted-figure-item {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.extracted-figure-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.extracted-figure-item:last-child {
+    margin-bottom: 0;
+}
+
+.figure-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.figure-title {
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 14px;
+}
+
+.figure-description {
+    color: #6c757d;
+    font-size: 12px;
+    font-style: italic;
+}
+
+.figure-image-container {
+    position: relative;
+    display: inline-block;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s;
+}
+
+.figure-image-container:hover {
+    transform: scale(1.02);
+}
+
+.extracted-figure-image {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.figure-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.figure-image-container:hover .figure-overlay {
+    opacity: 1;
+}
+
+.view-full-btn {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.view-full-btn:hover {
+    background: #0056b3;
+}
+
+.figure-analysis {
+    margin-top: 10px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border-left: 3px solid #007bff;
+    font-size: 13px;
+    line-height: 1.4;
+    color: #495057;
+}
+
+.figure-analysis strong {
+    color: #2c3e50;
+}
+
 /* 总结生成按钮样式 */
 .summary-placeholder {
     text-align: center;
