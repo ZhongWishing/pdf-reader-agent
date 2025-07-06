@@ -57,11 +57,11 @@ def extract_figures_from_answer(answer_text, relevant_pages, document_id, figure
                      if figure_info:
                          extracted_figures.extend(figure_info)
         
-        # 如果有特定的Figure编号请求，尝试精确匹配
+        # 如果有特定的Figure或Table编号请求，尝试精确匹配
         if figure_request.get('figure_number'):
             figure_num = figure_request['figure_number']
             # 在回答中查找该Figure的具体描述
-            figure_desc_pattern = rf'(?:figure|图|表)\s*{figure_num}[^。]*'
+            figure_desc_pattern = rf'(?:figure|图)\s*{figure_num}[^。]*'
             figure_desc_match = re.search(figure_desc_pattern, answer_text, re.IGNORECASE)
             
             if figure_desc_match:
@@ -70,6 +70,18 @@ def extract_figures_from_answer(answer_text, relevant_pages, document_id, figure
                 for figure in extracted_figures:
                     figure['description'] = figure_description
                     figure['figure_number'] = figure_num
+        elif figure_request.get('table_number'):
+            table_num = figure_request['table_number']
+            # 在回答中查找该Table的具体描述
+            table_desc_pattern = rf'(?:table|表|表格)\s*{table_num}[^。]*'
+            table_desc_match = re.search(table_desc_pattern, answer_text, re.IGNORECASE)
+            
+            if table_desc_match:
+                # 提取Table描述，用于后续的精确定位
+                table_description = table_desc_match.group(0)
+                for figure in extracted_figures:
+                    figure['description'] = table_description
+                    figure['table_number'] = table_num
         
     except Exception as e:
         current_app.logger.error(f"提取Figure信息失败: {str(e)}")
@@ -230,15 +242,28 @@ def handle_document_chat(document_id, question, session_id=None):
         figures_info = []
         
         if question_analysis['figure_info']['has_figure_request']:
-            # 构建具体的Figure查询字符串
+            # 构建具体的Figure或Table查询字符串
             figure_query = None
             if question_analysis['figure_info']['figure_numbers']:
-                # 如果有具体的Figure编号，构建查询字符串
+                # 如果有具体的编号，根据查询类型构建查询字符串
                 figure_num = question_analysis['figure_info']['figure_numbers'][0]
-                figure_query = f"Figure {figure_num}"
-            elif 'figure' in question.lower() or 'fig' in question.lower():
-                # 提取用户问题中的Figure相关描述
+                
+                # 检测查询类型：Table还是Figure
+                question_lower = question.lower()
+                if any(keyword in question_lower for keyword in ['table', '表', '表格']):
+                    figure_query = f"Table {figure_num}"
+                    print(f"检测到Table查询，构建查询字符串: {figure_query}")
+                else:
+                    figure_query = f"Figure {figure_num}"
+                    print(f"检测到Figure查询，构建查询字符串: {figure_query}")
+            elif any(keyword in question.lower() for keyword in ['table', '表', '表格']):
+                # Table相关的一般性查询
                 figure_query = question
+                print(f"检测到Table一般性查询: {figure_query}")
+            elif 'figure' in question.lower() or 'fig' in question.lower():
+                # Figure相关的一般性查询
+                figure_query = question
+                print(f"检测到Figure一般性查询: {figure_query}")
             
             print(f"Figure查询: {figure_query}")
             
@@ -462,16 +487,62 @@ def analyze_page_figures(image_path, figure_request, page_num, document_id):
                     # 检查是否匹配用户查询
                     matches_query = figure_data.get('matches_query', False)
                     confidence = figure_data.get('confidence', 0)
+                    boundary_quality = figure_data.get('boundary_quality', 'fair')
+                    completeness_check = figure_data.get('completeness_check', {})
+                    
+                    print(f"Figure质量评估: 置信度={confidence:.2f}, 边界质量={boundary_quality}")
+                    print(f"完整性检查: {completeness_check}")
                     
                     # 如果有特定查询，只处理匹配的Figure
                     if figure_query and not matches_query:
                         print(f"跳过不匹配的Figure: {figure_data.get('title', 'unknown')}")
                         continue
                     
-                    # 如果置信度太低，跳过
-                    if confidence < 0.6:
-                        print(f"跳过低置信度Figure: {figure_data.get('title', 'unknown')} (置信度: {confidence})")
+                    # 智能质量过滤 - 综合考虑置信度和边界质量
+                    def should_process_figure(confidence, boundary_quality, completeness_check):
+                        """智能判断是否应该处理这个Figure"""
+                        # 基础置信度要求
+                        if confidence < 0.5:
+                            return False, "置信度过低"
+                        
+                        # 边界质量检查
+                        quality_scores = {
+                            'excellent': 1.0,
+                            'good': 0.8,
+                            'fair': 0.6,
+                            'poor': 0.3
+                        }
+                        quality_score = quality_scores.get(boundary_quality, 0.5)
+                        
+                        # 完整性检查
+                        has_color = completeness_check.get('has_color_content', 'false') == 'true'
+                        has_title = completeness_check.get('has_title', 'false') == 'true'
+                        element_type = completeness_check.get('element_type', 'figure')
+                        
+                        # 综合评分 - 根据元素类型调整评分策略
+                        if element_type == 'table':
+                            # Table评分：主要看结构完整性和标题
+                            structure_bonus = 0.1 if has_title else 0
+                            final_score = confidence * 0.7 + quality_score * 0.2 + structure_bonus
+                        else:
+                            # Figure评分：看彩色内容和标题
+                            content_bonus = 0.1 if has_color and has_title else 0
+                            final_score = confidence * 0.6 + quality_score * 0.3 + content_bonus
+                        
+                        # 动态阈值：如果有特定查询，降低要求
+                        threshold = 0.55 if figure_query else 0.65
+                        
+                        if final_score >= threshold:
+                            return True, f"综合评分通过: {final_score:.2f}"
+                        else:
+                            return False, f"综合评分不足: {final_score:.2f} < {threshold}"
+                    
+                    should_process, reason = should_process_figure(confidence, boundary_quality, completeness_check)
+                    if not should_process:
+                        print(f"跳过Figure: {figure_data.get('title', 'unknown')} - {reason}")
                         continue
+                    
+                    print(f"处理Figure: {figure_data.get('title', 'unknown')} - {reason}")
                     
                     # 获取Figure位置信息
                     position = figure_data.get('position', {})
@@ -480,11 +551,57 @@ def analyze_page_figures(image_path, figure_request, page_num, document_id):
                     width = position.get('width', 100) / 100.0
                     height = position.get('height', 100) / 100.0
                     
-                    # 确保坐标在有效范围内
-                    x = max(0, min(1, x))
-                    y = max(0, min(1, y))
-                    width = max(0.1, min(1 - x, width))
-                    height = max(0.1, min(1 - y, height))
+                    print(f"原始坐标: x={x:.3f}, y={y:.3f}, w={width:.3f}, h={height:.3f}")
+                    
+                    # 智能坐标验证和调整
+                    def validate_and_adjust_coordinates(x, y, width, height):
+                        """验证并智能调整坐标以确保截取完整性"""
+                        # 确保坐标在有效范围内
+                        x = max(0, min(0.95, x))  # 留出右边界空间
+                        y = max(0, min(0.95, y))  # 留出下边界空间
+                        
+                        # 调整宽度和高度，确保不超出边界且有合理的最小值
+                        min_dimension = 0.08  # 最小8%的页面尺寸
+                        max_width = min(0.9, 1.0 - x)  # 最大宽度不超过页面且留边距
+                        max_height = min(0.9, 1.0 - y)  # 最大高度不超过页面且留边距
+                        
+                        width = max(min_dimension, min(max_width, width))
+                        height = max(min_dimension, min(max_height, height))
+                        
+                        # 如果调整后的区域太小，尝试向左上方扩展
+                        if width < 0.15 or height < 0.15:
+                            print("检测到小尺寸区域，尝试智能扩展...")
+                            # 向左扩展
+                            if x > 0.05 and width < 0.2:
+                                expand_left = min(0.05, x)
+                                x -= expand_left
+                                width += expand_left
+                            
+                            # 向上扩展
+                            if y > 0.05 and height < 0.2:
+                                expand_up = min(0.05, y)
+                                y -= expand_up
+                                height += expand_up
+                        
+                        return x, y, width, height
+                    
+                    # 应用智能坐标调整
+                    x, y, width, height = validate_and_adjust_coordinates(x, y, width, height)
+                    
+                    # 额外的Figure特定调整
+                    # 为了确保包含完整的Figure标题，适当向下扩展
+                    if height < 0.25:  # 如果高度较小，可能遗漏标题
+                        title_margin = 0.03  # 为标题预留3%的空间
+                        if y + height + title_margin <= 1.0:
+                            height += title_margin
+                            print(f"为Figure标题预留空间，高度调整为: {height:.3f}")
+                    
+                    # 为了确保包含完整的彩色图片，适当向上扩展
+                    if y > 0.02:  # 如果不是从页面顶部开始，向上扩展一点
+                        image_margin = 0.01  # 为图片上边界预留1%的空间
+                        y = max(0, y - image_margin)
+                        height = min(1.0 - y, height + image_margin)
+                        print(f"为彩色图片预留空间，y坐标调整为: {y:.3f}")
                     
                     print(f"Figure位置: x={x:.2f}, y={y:.2f}, w={width:.2f}, h={height:.2f}")
                     print(f"匹配查询: {matches_query}, 置信度: {confidence}")
@@ -579,8 +696,36 @@ def auto_extract_figure(document_id, page_number, x, y, width, height, figure_na
             right = round((x + width) * img_width)
             bottom = round((y + height) * img_height)
             
-            # 确保截取区域有最小尺寸
-            min_size = 50  # 最小50像素
+            print(f"初始计算坐标: ({left}, {top}, {right}, {bottom})")
+            
+            # 智能边界调整算法 - 确保截取完整性
+            def adjust_boundaries_for_completeness(left, top, right, bottom, img_width, img_height):
+                """智能调整边界以确保截取完整性"""
+                # 设置最小边距，避免截取到边缘像素导致的不完整
+                min_margin = 5
+                
+                # 向外扩展边界以确保完整性（优先保证不遗漏内容）
+                expansion_ratio = 0.02  # 向外扩展2%
+                
+                # 计算扩展量
+                width_expansion = max(min_margin, int((right - left) * expansion_ratio))
+                height_expansion = max(min_margin, int((bottom - top) * expansion_ratio))
+                
+                # 向外扩展边界
+                adjusted_left = max(0, left - width_expansion)
+                adjusted_top = max(0, top - height_expansion)
+                adjusted_right = min(img_width, right + width_expansion)
+                adjusted_bottom = min(img_height, bottom + height_expansion)
+                
+                print(f"边界扩展: 左{left}->{adjusted_left}, 上{top}->{adjusted_top}, 右{right}->{adjusted_right}, 下{bottom}->{adjusted_bottom}")
+                
+                return adjusted_left, adjusted_top, adjusted_right, adjusted_bottom
+            
+            # 应用智能边界调整
+            left, top, right, bottom = adjust_boundaries_for_completeness(left, top, right, bottom, img_width, img_height)
+            
+            # 确保截取区域有合理的最小尺寸
+            min_size = 80  # 增加最小尺寸要求
             if right - left < min_size:
                 center_x = (left + right) // 2
                 left = max(0, center_x - min_size // 2)
@@ -591,27 +736,29 @@ def auto_extract_figure(document_id, page_number, x, y, width, height, figure_na
                 top = max(0, center_y - min_size // 2)
                 bottom = min(img_height, top + min_size)
             
-            # 确保坐标在图片范围内
+            # 最终边界检查
             left = max(0, min(img_width - 1, left))
             top = max(0, min(img_height - 1, top))
             right = max(left + 1, min(img_width, right))
             bottom = max(top + 1, min(img_height, bottom))
             
-            print(f"实际截取坐标: ({left}, {top}, {right}, {bottom})")
+            print(f"最终截取坐标: ({left}, {top}, {right}, {bottom})")
             print(f"截取区域尺寸: {right - left} x {bottom - top}")
             
             # 截取图片
             cropped_img = img.crop((left, top, right, bottom))
             
-            # 检查截取的图片是否过小或过大
+            # 检查截取的图片质量
             crop_width, crop_height = cropped_img.size
-            if crop_width < 30 or crop_height < 30:
+            if crop_width < 50 or crop_height < 50:
                 print(f"警告: 截取的图片过小 ({crop_width}x{crop_height})，可能定位不准确")
-            elif crop_width > img_width * 0.8 or crop_height > img_height * 0.8:
+            elif crop_width > img_width * 0.9 or crop_height > img_height * 0.9:
                 print(f"警告: 截取的图片过大 ({crop_width}x{crop_height})，可能包含过多内容")
+            else:
+                print(f"截取质量良好: {crop_width}x{crop_height} 像素")
             
-            # 保存截取的图片
-            cropped_img.save(figure_path, 'PNG', quality=95)
+            # 保存截取的图片（提高质量）
+            cropped_img.save(figure_path, 'PNG', quality=98, optimize=True)
             
         print(f"Figure截取成功: {figure_path}")
         print(f"=== 自动截取Figure完成 ===")

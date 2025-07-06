@@ -29,10 +29,11 @@ class QuestionAnalyzer:
             '比较', '对比', '差异', '区别', '相同', '不同', '异同'
         ]
         
-        # Figure相关关键词
+        # Figure和Table相关关键词
         self.figure_keywords = [
             'figure', 'fig', '图', '图片', '图像', '图表', '示意图', 
-            '流程图', '结构图', '框图', '图形', '插图', '配图'
+            '流程图', '结构图', '框图', '图形', '插图', '配图',
+            'table', '表', '表格', '数据表', '统计表', '对比表', '列表'
         ]
         
         # 位置关键词
@@ -261,13 +262,18 @@ class QuestionAnalyzer:
         if any(keyword in question_lower for keyword in self.figure_keywords):
             figure_info['has_figure_request'] = True
         
-        # 提取Figure编号：Figure 1, Fig. 2, 图1等
+        # 提取Figure和Table编号：Figure 1, Fig. 2, 图1, Table 1, 表1等
         figure_patterns = [
             r'figure\s*(\d+)',
             r'fig\.?\s*(\d+)',
             r'图\s*(\d+)',
             r'图片\s*(\d+)',
-            r'图表\s*(\d+)'
+            r'图表\s*(\d+)',
+            r'table\s*(\d+)',
+            r'表\s*(\d+)',
+            r'表格\s*(\d+)',
+            r'第\s*(\d+)\s*表',
+            r'第\s*(\d+)\s*图'
         ]
         
         for pattern in figure_patterns:
@@ -278,10 +284,12 @@ class QuestionAnalyzer:
                 if figure_num not in figure_info['figure_numbers']:
                     figure_info['figure_numbers'].append(figure_num)
         
-        # 提取Figure类型描述
+        # 提取Figure和Table类型描述
         type_patterns = [
             r'(流程图|结构图|框图|示意图|配图|插图)',
-            r'(chart|diagram|graph|plot|image)'
+            r'(chart|diagram|graph|plot|image)',
+            r'(数据表|统计表|对比表|汇总表|列表|表格)',
+            r'(table|list|chart)'
         ]
         
         for pattern in type_patterns:

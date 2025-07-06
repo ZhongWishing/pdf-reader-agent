@@ -25,9 +25,9 @@ class APIManager:
         self.qwen_config = {
             'api_key': os.environ.get('QWEN_API_KEY', 'sk-12bce6292cff4499b56ea4dc2ce30082'),
             'base_url': os.environ.get('QWEN_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1'),
-            'vision_model': os.environ.get('QWEN_VISION_MODEL', 'qwen-vl-max-latest'),  # 最优视觉理解模型
-            'ocr_model': os.environ.get('QWEN_OCR_MODEL', 'qwen-vl-ocr-latest'),      # 最优文字提取模型
-            'text_model': os.environ.get('QWEN_TEXT_MODEL', 'qwen-max-latest'),       # 最优文本理解模型
+            'vision_model': os.environ.get('QWEN_VISION_MODEL', 'qwen-vl-max'),  # 最优视觉理解模型
+            'ocr_model': os.environ.get('QWEN_OCR_MODEL', 'qwen-vl-ocr'),      # 最优文字提取模型
+            'text_model': os.environ.get('QWEN_TEXT_MODEL', 'qwen-max'),       # 最优文本理解模型
             'timeout': int(os.environ.get('QWEN_TIMEOUT', '300')),  # 增加到5分钟
             'max_retries': int(os.environ.get('QWEN_MAX_RETRIES', '3'))
         }
@@ -119,7 +119,7 @@ class APIManager:
         """创建默认的环境变量文件"""
         try:
             env_content = """# Qwen API配置
-QWEN_API_KEY=sk-2070ced43347491cb70b298c8a7330c9
+QWEN_API_KEY=sk-12bce6292cff4499b56ea4dc2ce30082
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 QWEN_VISION_MODEL=qwen-vl-max-latest
 QWEN_OCR_MODEL=qwen-vl-ocr-latest
