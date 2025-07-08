@@ -86,7 +86,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. 配置环境变量
+### 3. 配置API密钥
+
+**重要提示**：使用本项目需要配置三处API密钥，请按以下步骤操作：
+
+#### 3.1 配置环境变量文件
 
 复制 `.env.example` 为 `.env` 并配置：
 
@@ -94,11 +98,11 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-编辑 `.env` 文件：
+编辑 `.env` 文件，**第一处API密钥配置**：
 
 ```env
 # Qwen API配置
-QWEN_API_KEY=your_qwen_api_key_here
+QWEN_API_KEY=your_qwen_api_key_here  # 第一处：替换为您的实际API密钥
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 QWEN_MODEL=qwen-vl-plus
 
@@ -115,6 +119,40 @@ DATA_FOLDER=data
 # 服务器配置
 HOST=0.0.0.0
 PORT=5000
+```
+
+#### 3.2 配置API管理器文件
+
+编辑 `backend/utils/api_manager.py` 文件，需要配置**两处API密钥**：
+
+1. **第二处**：在第25行左右，找到以下代码并替换默认API密钥：
+```python
+'api_key': os.environ.get('QWEN_API_KEY', 'sk-xxxxxxxxxxxxx'),  # 替换默认值
+```
+
+2. **第三处**：在第125行左右，找到以下代码并替换默认API密钥：
+```python
+QWEN_API_KEY=sk-xxxxxxxxxxxxx  # 替换为您的实际API密钥
+```
+
+#### 3.3 API密钥获取方式
+
+1. 访问 [阿里云DashScope控制台](https://dashscope.console.aliyun.com/)
+2. 注册并登录账户
+3. 创建API密钥
+4. 复制生成的API密钥（格式通常为 `sk-xxxxxxxxxx`）
+5. 将API密钥分别填入上述三个位置
+
+#### 3.4 配置验证
+
+配置完成后，可以通过以下方式验证：
+
+```bash
+# 启动应用
+python run.py
+
+# 检查API配置状态
+curl http://localhost:5000/api/health
 ```
 
 ### 4. 安装poppler（Windows）
